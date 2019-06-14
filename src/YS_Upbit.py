@@ -1,9 +1,14 @@
+import json
 import logging
+import os
 import sys
+import threading
 import time
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
-from src.UpbitAPI import UpBit
+
+from src import TelegramBotApi
+from src.UpbitAPI import UpBit, UpBitUtil
 
 
 class FileHandler(PatternMatchingEventHandler):
@@ -18,6 +23,41 @@ class FileHandler(PatternMatchingEventHandler):
                     line = f.readline()
                     if len(line) == 0:
                         print('beforeLine : [', beforeLine, '] lastLien : [', lastLine, ']')
+                        # 시그널 신호 example
+                        # 2019 - 06 - 04 22: 15:00 Buy SymbolName: 비트코인/KRW_업비트 MarketPosition: 1 Price: 9827000.00
+                        lastLine = '2019-06-04 22:15:00 Buy SymbolName: 비트코인/KRW_업비트 MarketPosition: 1 Price: 9827000.00'
+                        signal = lastLines = lastLine.split(' ')
+
+                        # lastLine 기준으로 매매 신호를 파싱하여
+
+                        # 심볼 이름 에 따른 마켓코드 획득
+                        symbolName = signal[4]  # '비트코인/KRW-업비트'
+                        symbolName = symbolName.rstrip('-')
+                        marketCodes = symbolName.split('/')
+                        marketCode = marketCodes[-1] + '-' + marketCodes[0]
+
+                        # 매수 인지 매도인지 파악하고
+                        side = 'bid' if signal[2] == 'Buy' else 'ask'
+
+                        # 주문 수량
+                        volume = signal[6]
+
+                        # 주문 가격
+                        # 추후 주문 수량에 맞춰 주문가격에 대한 호가 변경 로직이 필요함
+                        # 현재는 시장가 주문으로서 price 데이터는 null 이여야함
+                        price = None  # signal[8] 째 데이터가 주문가격임.
+
+                        # 주문타입
+                        # 일단 시장가로 측정
+                        ord_type = 'price' if side == 'bid' else 'market'
+
+                        response = UpBit.Order(marketCode, side, volume, price, ord_type)
+
+                        if response['state'] == 'wait':
+                            UpBitUtil.nonSignedOrderbooks.put(response)
+                        else:
+                            {}
+                            # 텔레그램 봇으로 매매 상태 날리기
 
                         break;
                     beforeLine = lastLine
@@ -38,12 +78,20 @@ if __name__ == "__main__":
     #                     format='%(asctime)s - %(message)s',
     #                     datefmt='%Y-%m-%d %H:%M:%S')
     path = sys.argv[1] if len(sys.argv) > 1 else '.'
-    UpBit.instance('bCx3A5fO8kWfoM5WrNTtdbx9l9xRvaIGnCB3uSjy','LXZHyqdxIgexfYqNokGt2xvNR1sKNixirMDauhca')
-    result = UpBit.GetMarket()
+
+    dirPath = os.getcwd()
+    with open(dirPath + '\src\config.cf') as json_file:
+        json_config_data = json.load(json_file)
+
+    UpBit.instance(json_config_data['UpBitAccessKey'], json_config_data['UpBitSecretKey'])
     event_handler = FileHandler(pattenrs)
     observer = Observer()
     observer.schedule(event_handler, path, recursive=True)
     observer.start()
+
+    nosignedThread = threading.Thread(target=UpBitUtil.WaitNonSigned())
+    nosignedThread.start()
+
     try:
         while True:
             time.sleep(1)

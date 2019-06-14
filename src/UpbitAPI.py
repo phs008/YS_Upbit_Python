@@ -2,12 +2,14 @@ import jwt
 import uuid
 import hashlib
 import requests
+import queue
 from urllib.parse import urlencode
 
-
-class UpBitKey(object):
+class UpBitKey():
     accessKey = None
     secretKey = None
+    marketDic = dict()
+    nonSignedOrderbooks = queue.Queue()
 
 
 class UpBit(UpBitKey):
@@ -29,31 +31,60 @@ class UpBit(UpBitKey):
         UpBitKey.secretKey = secret_key
 
     @staticmethod
-    def GetMarket():
-        url = "https://api.upbit.com/v1/market/all"
-        return UpBit.HttpRequest(url);
-
-    @staticmethod
     def GetAccount():
+
         url = "https://api.upbit.com/v1/accounts"
 
     @staticmethod
     def GetOrderBook(markets):
         url = "https://api.upbit.com/v1/orderbook"
-        param = ','.join(markets)
-        UpBit.CallApiWithParam(url,param,)
-
+        if isinstance(markets, list):
+            param = ','.join(markets)
+        else:
+            param = markets
+        return UpBit.CallApiArrayParam(url, param)
 
     @staticmethod
-    def OrderBook(order):
-        url = "https://api.upbit.com/v1/market/all"
+    def GetTicker(markets):
+        url = "https://api.upbit.com/v1/ticker"
+        param = ','.join(markets)
+        return UpBit.CallApiArrayParam(url, param)
 
+    @staticmethod
+    def Order(market, side, volume, price, ord_type):
+        """
+        Upbit 주문 API
+        :param market: 마켓 코드
+        :param side: 주문종류 ( 매수 : bid , 매도 : ask )
+        :param volume: 주문량
+        :param price: 주문가격
+        :param ord_type: 주문타입 ( 지정가 주문 : limit , 시장가 매수 주문 : price , 시장가 매도 주문 : market )
+        :return: 주문 UUID
+        """
+        url = "https://api.upbit.com/v1/orders"
+        body = {"market": market, "side": side, "volume": volume, "price": price, "ord_type": ord_type}
+        result = UpBit.CallApiWithParam(url, body, 'POST')
+        return {'uuid': result['uuid'], 'status': result['state'], 'avg_price': result['avg_price']}
 
     @staticmethod
     def CallApiNoParam(url, method='GET'):
         try:
             token = UpBit.NoParameterRequest()
             res = requests.request(method, url)
+            res.raise_for_status()
+            return res.json()
+        except requests.exceptions.RequestException as e:
+            print(e)
+            pass
+        except requests.exceptions.HTTPError as e:
+            print(e)
+            pass
+
+    @staticmethod
+    def CallApiArrayParam(url, markets):
+        try:
+            queryString = {"markets": markets}
+            res = requests.request("GET", url, params=queryString)
             res.raise_for_status()
             return res.json()
         except requests.exceptions.RequestException as e:
@@ -89,9 +120,9 @@ class UpBit(UpBitKey):
         return authorization_token
 
     @staticmethod
-    def WithParameterRequest(queryDic):
+    def WithParameterRequest(body):
         hash = hashlib.sha512()
-        hash.update(urlencode(queryDic).encode())
+        hash.update(urlencode(body).encode())
         query_hash = hash.hexdigest()
 
         payload = {
@@ -103,3 +134,33 @@ class UpBit(UpBitKey):
         jwt_token = jwt.encode(payload, UpBit.secretKey).decode('utf8')
         authorization_token = 'Bearer {}'.format(jwt_token)
         return authorization_token
+
+
+class UpBitUtil(UpBitKey):
+    @staticmethod
+    def GetPriceUnitInKRWMarket(orderPrice):
+        if orderPrice >= 2000000:
+            return orderPrice + 1000
+        elif orderPrice < 2000000 & orderPrice >= 1000000:
+            return orderPrice + 500
+        elif orderPrice < 1000000 & orderPrice >= 500000:
+            return orderPrice + 500
+        elif orderPrice < 500000 & orderPrice >= 100000:
+            return orderPrice + 50
+        elif orderPrice < 100000 & orderPrice >= 10000:
+            return orderPrice + 10
+        elif orderPrice < 10000 & orderPrice >= 1000:
+            return orderPrice + 5
+        elif orderPrice < 1000 & orderPrice >= 100:
+            return orderPrice + 1
+        elif orderPrice < 100 & orderPrice >= 10:
+            return orderPrice + 0.1
+        elif orderPrice < 10:
+            return orderPrice + 0.01
+
+    @staticmethod
+    def WaitNonSigned():
+        while True:
+            if UpBitKey.nonSignedOrderbooks.qsize() > 0:
+                nonSignedBook = UpBitKey.nonSignedOrderbooks.put()
+
