@@ -5,6 +5,7 @@ import requests
 import queue
 from urllib.parse import urlencode
 
+
 class UpBitKey():
     accessKey = None
     secretKey = None
@@ -29,11 +30,18 @@ class UpBit(UpBitKey):
     def instance(access_key, secret_key):
         UpBitKey.accessKey = access_key
         UpBitKey.secretKey = secret_key
+        response = UpBit.GetMarketCode()
+        for marketData in response:
+            marketname = marketData["market"]
+            marketname = marketname.split('-')
+            koreaname = marketData["korean_name"]
+            UpBitKey.marketDic[f'{koreaname}/{marketname[0]}'] = marketData["market"]
 
     @staticmethod
-    def GetAccount():
-
-        url = "https://api.upbit.com/v1/accounts"
+    def GetMarketCode():
+        url = "https://api.upbit.com/v1/market/all"
+        res = requests.request('GET', url)
+        return res.json()
 
     @staticmethod
     def GetOrderBook(markets):
@@ -43,6 +51,15 @@ class UpBit(UpBitKey):
         else:
             param = markets
         return UpBit.CallApiArrayParam(url, param)
+
+    @staticmethod
+    def GetAccount():
+        url = "https://api.upbit.com/v1/accounts"
+        return UpBit.CallApiNoParam(url)
+
+    @staticmethod
+    def GetChance():
+        url = "https://api.upbit.com/v1/orders/chance"
 
     @staticmethod
     def GetTicker(markets):
@@ -69,8 +86,9 @@ class UpBit(UpBitKey):
     @staticmethod
     def CallApiNoParam(url, method='GET'):
         try:
-            token = UpBit.NoParameterRequest()
-            res = requests.request(method, url)
+            token = UpBit.NoParameterRequest();
+            headers = {'Authorization': token}
+            res = requests.request(method, url, headers=headers)
             res.raise_for_status()
             return res.json()
         except requests.exceptions.RequestException as e:
@@ -98,7 +116,8 @@ class UpBit(UpBitKey):
     def CallApiWithParam(url, body, method='GET'):
         try:
             token = UpBit.WithParameterRequest(body)
-            res = requests.request(method, url)
+            headers = {'Authorization': token}
+            res = requests.request(method, url, headers=headers, json=body)
             res.raise_for_status()
             return res.json()
         except requests.exceptions.RequestException as e:
@@ -163,4 +182,3 @@ class UpBitUtil(UpBitKey):
         while True:
             if UpBitKey.nonSignedOrderbooks.qsize() > 0:
                 nonSignedBook = UpBitKey.nonSignedOrderbooks.put()
-
