@@ -68,7 +68,7 @@ class UpBit(UpBitKey):
         return UpBit.CallApiArrayParam(url, param)
 
     @staticmethod
-    def Order(market, side, volume, price, ord_type):
+    def Order(orders):
         """
         Upbit 주문 API
         :param market: 마켓 코드
@@ -79,9 +79,9 @@ class UpBit(UpBitKey):
         :return: 주문 UUID
         """
         url = "https://api.upbit.com/v1/orders"
-        body = {"market": market, "side": side, "volume": volume, "price": price, "ord_type": ord_type}
-        result = UpBit.CallApiWithParam(url, body, 'POST')
-        return {'uuid': result['uuid'], 'status': result['state'], 'avg_price': result['avg_price']}
+
+        result = UpBit.CallApiWithParam(url, orders, 'POST')
+        return {'uuid': result['uuid'], 'status': result['state'], 'created_at': result['created_at']}
 
     @staticmethod
     def CallApiNoParam(url, method='GET'):
@@ -117,7 +117,7 @@ class UpBit(UpBitKey):
         try:
             token = UpBit.WithParameterRequest(body)
             headers = {'Authorization': token}
-            res = requests.request(method, url, headers=headers, json=body)
+            res = requests.request(method, url, headers=headers, data=body)
             res.raise_for_status()
             return res.json()
         except requests.exceptions.RequestException as e:

@@ -1,8 +1,6 @@
 import json
-import logging
 import os
 import sys
-import threading
 import time
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
@@ -11,8 +9,14 @@ from src.UpbitAPI import UpBit, UpBitUtil, UpBitKey
 
 
 class FileHandler(PatternMatchingEventHandler):
+    isFirstevent = 1
+
     def FileParsing(self, event):
-        if event.event_type == "modified":
+        if event.event_type == "modified" and (self.isFirstevent % 2 == 1):
+            # 이벤트 중복 발생 필터링을 위한 조건절
+            # 첫번째 이벤트는 처리하고 그 다음 이벤트는 무시한다.
+            self.isFirstevent += 1
+
             fileName = event.src_path
             try:
                 f = open(fileName, 'r', encoding='cp949')
@@ -48,18 +52,28 @@ class FileHandler(PatternMatchingEventHandler):
 
                         # 주문타입
                         # 일단 시장가로 측정
-                        ord_type = 'market'   # 'price' if side == 'bid' else 'market' => 지정가 주문 처리시 사용
+                        ord_type = 'price' if side == 'bid' else 'market'
 
-                        response = UpBit.Order(marketCode, side, volume, price, ord_type)
+                        orders = dict()
+                        orders['market'] = marketCode
+                        orders['side'] = side
+                        orders['volume'] = volume
+                        if ord_type == 'limit' or ord_type == 'price':
+                            orders['price'] = price
+                        orders['ord_type'] = ord_type
 
-                        if response['state'] == 'wait':
-                            # 업비트 매매 주문 처리
-                            UpBitUtil.nonSignedOrderbooks.put(response)
-                            # 텔레그램 봇으로 매매 상태 날리기
-                            TelegramApi.SendMessage(f"[ 주문메시지 발생 ] 종목 : {marketCode} , 매수/매도 : {side} , "
-                                                    f"주문수량 : {volume}")
-                        else:
-                            {}
+                        UpBit.Order(orders)
+
+                        # if response['state'] == 'wait':
+                        #     # 업비트 매매 주문 처리
+                        #     UpBitUtil.nonSignedOrderbooks.put(response)
+                        #     # 텔레그램 봇으로 매매 상태 날리기
+                        #     TelegramApi.SendMessage(f"[ 주문대기 상태 ] 종목 : {marketCode} , 매수/매도 : {side} , "
+                        #                             f"주문수량 : {volume}")
+                        # else:
+                        #     {}
+                        TelegramApi.SendMessage(f"[ 주문메시지 발생 ] 종목 : {marketCode} , 매수/매도 : {side} , "
+                                                f"주문수량 : {volume}")
 
                         break
                     beforeLine = lastLine
